@@ -1,0 +1,19 @@
+version: 1
+kind: pipeline
+spec:
+  stages:
+  - name: build
+    spec:
+      platform:
+        arch: amd64
+        os: linux
+      steps:
+      - name: docker_build
+        spec:
+          inputs:
+            repo: mini.dolphin-puffin.ts.net:5443/bursar
+            registry: mini.dolphin-puffin.ts.net:5443
+            tags: latest
+          name: docker
+        type: plugin
+    type: ci
