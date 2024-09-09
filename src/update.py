@@ -38,6 +38,20 @@ def get_maps(maps_sheet):
 
     return maps
 
+def simplefin_accounts_to_dataframe(simplefin_data, maps):
+    df = pd.DataFrame(columns=['account', 'balance', 'posted'])
+
+    for account in simplefin_data["accounts"]:
+        name = f"{account['org']['name']} - {account['name']}"
+        df = pd.concat([pd.DataFrame([[name, account['balance'], pd.to_datetime(account['balance-date'], unit="s")]], columns=df.columns), df], ignore_index=True)
+
+    for map in maps:
+        df[map["dest_col"]] = df[map["source_col"]].map(map["map"])
+    
+    df = df.replace({pd.NA: ""})
+
+    return df
+
 
 def simplefin_to_dataframe(simplefin_data, maps):
     df = pd.DataFrame()
@@ -85,11 +99,30 @@ def update_worksheet(ws: gspread.Worksheet, subset, columns):
         pd.concat([ws_data, sf_data])
         .loc[:, columns]
         .drop_duplicates(subset=["id"], keep="first")
-        .assign(posted=lambda x: pd.to_datetime(x["posted"]).dt.strftime("%m/%d/%Y"))
+        .assign(posted=lambda x: pd.to_datetime(x["posted"], format="mixed", dayfirst=False).dt.strftime("%m/%d/%Y"))
         .sort_values(by=["posted", "account"], ascending=[False, True])
         .fillna("")
         .values.tolist()
     )
+
+    ws.update(f"A2:{last_col}", new_data, value_input_option="USER_ENTERED")
+
+def update_overview(ws: gspread.Worksheet, subset, columns):
+    last_col = chr(ord("A") + len(columns) - 1)
+    ws_data = pd.DataFrame(ws.get_values(f"A1:{last_col}"), columns=columns).iloc[1:, :]
+    sf_data = subset.copy()
+    
+    new_data = ws_data.merge(sf_data, on='account', how='left', suffixes=[None, "_x"])
+    # Update in place the new balance, and posted then drop the temp columns
+    new_data['balance'].update(new_data['balance_x'])
+    new_data['posted'].update(new_data['posted_x'])
+    new_data['Account'].update(new_data['Account_x'])
+    # Actually don't think I need this because the columns are dropped below
+    new_data.drop(['posted_x', 'balance_x', 'Account_x'], axis=1, inplace=True)
+
+    new_data = (new_data.loc[:, columns]
+        .assign(posted=lambda x: pd.to_datetime(x["posted"], format="mixed", dayfirst=False).dt.strftime("%m/%d/%Y"))
+        .fillna("").values.tolist())
 
     ws.update(f"A2:{last_col}", new_data, value_input_option="USER_ENTERED")
 
@@ -110,6 +143,7 @@ def run_update(days_to_fetch):
     try:
         template_sheet = sh.get_worksheet_by_id(int(os.environ.get("TEMPLATE_GID")))
         maps_sheet = sh.get_worksheet_by_id(int(os.environ.get("MAPS_GID")))
+        overview_sheet = sh.get_worksheet_by_id(int(os.environ.get("OVERVIEW_GID")))
     except Exception as e:
         print("Template or maps sheet GID not found. Exiting update.py.")
         exit()
@@ -128,6 +162,20 @@ def run_update(days_to_fetch):
 
     # transform response into dataframe
     maps = get_maps(maps_sheet)
+    df_overview = simplefin_accounts_to_dataframe(data, maps)
+    
+    if len(df_overview) == 0:
+        print(
+            f"No accounts found for update at {datetime.datetime.now()}."
+        )
+        return
+    
+    # get columns to update
+    overview_columns = [c.strip() for c in os.environ.get("OVERVIEW_COLUMNS").split(",")]
+
+    update_overview(overview_sheet, df_overview, overview_columns)
+
+
     df = simplefin_to_dataframe(data, maps)
 
     if len(df) == 0:
