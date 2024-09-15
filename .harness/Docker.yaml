@@ -13,7 +13,7 @@ spec:
           inputs:
             repo: mini.dolphin-puffin.ts.net:5443/bursar
             registry: mini.dolphin-puffin.ts.net:5443
-            tags: ${DRONE_BUILD_NUMBER}
+            tags: latest
           name: docker
         type: plugin
     type: ci
