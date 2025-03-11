@@ -8,7 +8,7 @@
       "name": "Python Debugger: Setup",
       "type": "debugpy",
       "request": "launch",
-      "program": "setup.py",
+      "program": "src/setup.py",
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}"
     },
