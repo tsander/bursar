@@ -19,7 +19,6 @@ spec:
               image: docker:23.0-cli
               run: |-
                 set -e
-                echo ${{ secrets.get('DOCKER_HUB_PASSWORD') }} | docker login -u ${{ secrets.get('DOCKER_HUB_USERNAME') }} --password-stdin
 
                 echo "==> Setup binfmt_misc for multi-arch"
                 docker run --rm --privileged tonistiigi/binfmt --install all
