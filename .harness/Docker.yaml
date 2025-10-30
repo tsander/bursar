@@ -34,7 +34,7 @@ spec:
                   --platform linux/amd64,linux/arm64 \
                   -t docker-registry.dolphin-puffin.ts.net/bursar:latest \
                   -t docker-registry.dolphin-puffin.ts.net/bursar:v${{ build.number }} \
-                  -f docker/Dockerfile \
+                  -f Dockerfile \
                   --push . \
                   --progress=plain
 
