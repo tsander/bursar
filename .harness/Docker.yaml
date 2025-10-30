@@ -4,6 +4,11 @@ spec:
   stages:
   - name: build
     spec:
+      volumes:
+          - name: dockersock
+            spec:
+              path: /var/run/docker.sock
+            type: host
       platform:
         arch: amd64
         os: linux
