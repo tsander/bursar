@@ -1,18 +1,19 @@
-version: 1
 kind: pipeline
 spec:
   stages:
-  - name: build
-    spec:
-      volumes:
+    - name: build
+      type: ci
+      spec:
+        volumes:
           - name: dockersock
             spec:
               path: /var/run/docker.sock
             type: host
-      platform:
-        arch: amd64
-        os: linux
-      steps:
+        platform:
+          arch: amd64
+          os: linux
+        steps:
+          # Build and push the main application image (multi-arch buildx)
           - name: build_main_image
             type: script
             privileged: true
@@ -20,6 +21,7 @@ spec:
               image: docker:23.0-cli
               run: |-
                 set -e
+                echo ${{ secrets.get('DOCKER_HUB_PASSWORD') }} | docker login -u ${{ secrets.get('DOCKER_HUB_USERNAME') }} --password-stdin
 
                 echo "==> Setup binfmt_misc for multi-arch"
                 docker run --rm --privileged tonistiigi/binfmt --install all
@@ -31,14 +33,14 @@ spec:
                 echo "==> Build and push multi-arch image"
                 docker buildx build \
                   --platform linux/amd64,linux/arm64 \
-                  -t docker-registry.dolphin-puffin.ts.net/bursar:latest \
-                  -t docker-registry.dolphin-puffin.ts.net/bursar:v${{ build.number }} \
+                  -t docker-registry.dolphin-puffin.ts.net/dockge:latest \
+                  -t docker-registry.dolphin-puffin.ts.net/dockge:v${{ build.number }} \
                   -f docker/Dockerfile \
                   --push . \
                   --progress=plain
 
                 echo "==> Inspect pushed image"
-                docker buildx imagetools inspect docker-registry.dolphin-puffin.ts.net/bursar:latest || echo "Image not found"
+                docker buildx imagetools inspect docker-registry.dolphin-puffin.ts.net/dockge:latest || echo "Image not found"
               mount:
                 - name: dockersock
                   path: /var/run/docker.sock
@@ -55,4 +57,4 @@ spec:
                 - name: dockersock
                   path: /var/run/docker.sock
               when: always()
-    type: ci
+version: 1
