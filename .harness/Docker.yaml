@@ -8,12 +8,46 @@ spec:
         arch: amd64
         os: linux
       steps:
-      - name: docker_build
-        spec:
-          inputs:
-            repo: docker-registry.dolphin-puffin.ts.net/bursar
-            registry: docker-registry.dolphin-puffin.ts.net
-            tags: v${{ build.number }}
-          name: docker
-        type: plugin
+          - name: build_main_image
+            type: script
+            spec:
+              image: docker:23.0-cli
+              run: |-
+                set -e
+                echo ${{ secrets.get('DOCKER_HUB_PASSWORD') }} | docker login -u ${{ secrets.get('DOCKER_HUB_USERNAME') }} --password-stdin
+
+                echo "==> Setup binfmt_misc for multi-arch"
+                docker run --rm --privileged tonistiigi/binfmt --install all
+
+                echo "==> Create and bootstrap buildx builder"
+                docker buildx create --name multi-builder --use || docker buildx use multi-builder
+                docker buildx inspect --bootstrap
+
+                echo "==> Build and push multi-arch image"
+                docker buildx build \
+                  --platform linux/amd64,linux/arm64 \
+                  -t docker-registry.dolphin-puffin.ts.net/bursar:latest \
+                  -t docker-registry.dolphin-puffin.ts.net/bursar:v${{ build.number }} \
+                  -f docker/Dockerfile \
+                  --push . \
+                  --progress=plain
+
+                echo "==> Inspect pushed image"
+                docker buildx imagetools inspect docker-registry.dolphin-puffin.ts.net/bursar:latest || echo "Image not found"
+              mount:
+                - name: dockersock
+                  path: /var/run/docker.sock
+
+          # Clean up Docker build cache
+          - name: cleanup_build_cache
+            type: script
+            spec:
+              image: docker:23.0-cli
+              run: |-
+                echo "Pruning Docker build cache..."
+                docker buildx prune -af
+              mount:
+                - name: dockersock
+                  path: /var/run/docker.sock
+              when: always()
     type: ci
