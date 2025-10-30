@@ -15,6 +15,7 @@ spec:
       steps:
           - name: build_main_image
             type: script
+            privileged: true
             spec:
               image: docker:23.0-cli
               run: |-
