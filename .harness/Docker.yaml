@@ -11,8 +11,8 @@ spec:
       - name: docker_build
         spec:
           inputs:
-            repo: mini.dolphin-puffin.ts.net:5443/bursar
-            registry: mini.dolphin-puffin.ts.net:5443
+            repo: docker-registry.dolphin-puffin.ts.net/bursar
+            registry: docker-registry.dolphin-puffin.ts.net
             tags: v${{ build.number }}
           name: docker
         type: plugin
