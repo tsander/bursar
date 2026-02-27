@@ -18,7 +18,7 @@ spec:
             type: script
             privileged: true
             spec:
-              image: docker:23.0-cli
+              image: docker:27-cli
               run: |-
                 set -e
 
