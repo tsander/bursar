@@ -19,6 +19,8 @@ spec:
             privileged: true
             spec:
               image: docker:27-cli
+              env:
+                DOCKER_API_VERSION: "1.44"
               run: |-
                 set -e
 
@@ -49,6 +51,8 @@ spec:
             type: script
             spec:
               image: docker:27-cli
+              env:
+                DOCKER_API_VERSION: "1.44"
               run: |-
                 echo "Pruning Docker build cache..."
                 docker buildx prune -af
