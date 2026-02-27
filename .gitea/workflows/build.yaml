@@ -1,0 +1,45 @@
+name: Build and Push Multi-Arch Image
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Optional: use a specific image that has docker-cli pre-installed
+    container:
+      image: catthehacker/ubuntu:act-latest
+      # Privileged mode is required for multi-arch/buildx
+      options: --privileged 
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: docker-registry.dolphin-puffin.ts.net
+          # Store these in Repository Settings > Actions > Secrets
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Build and Push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            docker-registry.dolphin-puffin.ts.net/bursar:latest
+            docker-registry.dolphin-puffin.ts.net/bursar:v${{ gitea.run_number }}
