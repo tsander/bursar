@@ -11,8 +11,6 @@ jobs:
     # Optional: use a specific image that has docker-cli pre-installed
     container:
       image: catthehacker/ubuntu:act-latest
-      # Privileged mode is required for multi-arch/buildx
-      options: --privileged 
 
     steps:
       - name: Checkout
