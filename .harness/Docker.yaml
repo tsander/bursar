@@ -48,7 +48,7 @@ spec:
           - name: cleanup_build_cache
             type: script
             spec:
-              image: docker:23.0-cli
+              image: docker:27-cli
               run: |-
                 echo "Pruning Docker build cache..."
                 docker buildx prune -af
