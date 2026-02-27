@@ -11,6 +11,7 @@ jobs:
     # Optional: use a specific image that has docker-cli pre-installed
     container:
       image: catthehacker/ubuntu:act-latest
+      privileged: false
 
     steps:
       - name: Checkout
