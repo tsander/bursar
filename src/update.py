@@ -90,6 +90,17 @@ def simplefin_to_dataframe(simplefin_data, maps):
     return df
 
 
+def normalize_amount(val):
+    if pd.isnull(val) or val == "":
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    val = str(val).replace('$', '').replace(',', '').strip()
+    try:
+        return float(val)
+    except ValueError:
+        return 0.0
+
 def reconcile_and_merge(ws_df, sf_df, columns):
     """
     Reconciles the Google Sheet Data (ws_df) with SimpleFin Feed Data (sf_df).
@@ -98,10 +109,17 @@ def reconcile_and_merge(ws_df, sf_df, columns):
     2. Reconcile Orphans (Match on Amt/Date/Desc -> Update ID/Account).
     3. Add New Arrivals (with Time-Based Suppression for Zombies).
     """
+    ws_df = ws_df.copy()
+    sf_df = sf_df.copy()
+
     # 1. Setup
     # Ensure date parsing is robust
     ws_df['posted_dt'] = pd.to_datetime(ws_df['posted'], format="mixed", dayfirst=False, errors='coerce')
     sf_df['posted_dt'] = pd.to_datetime(sf_df['posted'], format="mixed", dayfirst=False, errors='coerce')
+    
+    # Normalize amounts
+    ws_df['amount_num'] = ws_df['amount'].apply(normalize_amount)
+    sf_df['amount_num'] = sf_df['amount'].apply(normalize_amount)
     
     # Track consumed feed IDs to prevent double-adding
     feed_ids_consumed = set()
@@ -113,7 +131,7 @@ def reconcile_and_merge(ws_df, sf_df, columns):
     def find_match(row, candidates):
         # Filter the feed to find rows with an exact amount match that haven't been consumed yet
         matches = candidates[
-            (candidates['amount'] == row['amount']) & 
+            (candidates['amount_num'] == row['amount_num']) & 
             (~candidates['id'].isin(feed_ids_consumed))
         ].copy()
         
@@ -137,7 +155,9 @@ def reconcile_and_merge(ws_df, sf_df, columns):
     
     # 2. Process Existing Sheet Rows
     for _, row in ws_df.iterrows():
-        row_id = row['id']
+        row_id = row.get('id', '')
+        if not row_id:
+            continue
         new_row = row.copy()
         
         # Check if ID exists in Feed (Exact Match)
@@ -149,11 +169,11 @@ def reconcile_and_merge(ws_df, sf_df, columns):
             # Copy certain fields from the feed
             new_row['posted'] = feed_match['posted']
             new_row['amount'] = feed_match['amount']
+            new_row['description'] = feed_match['description']
             new_row['account'] = feed_match['account']
-            
         else:
             # Orphan! See if there is a possible duplicate
-            match = find_match(row, sf_df)
+            match = find_match(new_row, sf_df)
             if match is not None:
                 # Duplicate found! Update the id and mark as consumed.
                 new_row['id'] = match['id']
@@ -168,13 +188,13 @@ def reconcile_and_merge(ws_df, sf_df, columns):
                 # Update other fields
                 new_row['posted'] = match['posted']
                 new_row['description'] = match['description']
-                
+                new_row['amount'] = match['amount'] # update to raw format
             else:
                 # TRUE ORPHAN
                 
                 # We need to know the oldest date we fetched for this specific account
                 # to know if this transaction *should* be in the feed
-                account_name = row['account']
+                account_name = row.get('account', '')
                 acct_feed = sf_df[sf_df['account'] == account_name]
                 
                 if not acct_feed.empty:
@@ -182,15 +202,15 @@ def reconcile_and_merge(ws_df, sf_df, columns):
                     
                     # If the transaction is newer than the oldest updated feed item for this account,
                     # AND it is missing, it may be an Orphan let the user decide.
-                    if pd.notnull(min_feed_dt) and pd.notnull(row['posted_dt']):
-                        if row['posted_dt'] >= min_feed_dt:
+                    if pd.notnull(min_feed_dt) and pd.notnull(new_row['posted_dt']):
+                        if new_row['posted_dt'] >= min_feed_dt:
                             cols_to_check = ['Notes'] if 'Notes' in row else []
                             if cols_to_check:
                                 curr_notes = str(row.get('Notes', ''))
                                 if "[Orphan?]" not in curr_notes:
                                     new_row['Notes'] = f"{curr_notes} [Orphan?]".strip()
         
-        final_rows.append(new_row)
+        final_rows.append(new_row.to_dict())
 
     # 3. Process New Arrivals (Feed IDs not consumed)
     # Get all feed rows where ID is not in consumed
@@ -206,7 +226,7 @@ def reconcile_and_merge(ws_df, sf_df, columns):
         # Find rows with same Amount & Description
         # (Date fuzzy match is expensive here, lets do exact date for collision check or strict window)
         collision_candidates = ws_df[
-            (ws_df['amount'] == feed_row['amount']) &
+            (ws_df['amount_num'] == feed_row['amount_num']) &
             (ws_df['description'] == feed_row['description'])
         ]
         
@@ -220,27 +240,38 @@ def reconcile_and_merge(ws_df, sf_df, columns):
                     if pd.notnull(exist_dt) and abs((feed_dt - exist_dt).days) <= 2:
                         has_collision = True
                         break
-        
+
+        # Check against final_rows (new arrivals added in THIS run)
+        if not has_collision:
+            for f_row in final_rows:
+                if 'amount' in f_row and normalize_amount(f_row['amount']) == feed_row['amount_num']:
+                    if f_row.get('description') == feed_row['description']:
+                        f_dt = f_row.get('posted_dt')
+                        if pd.notnull(f_dt) and pd.notnull(feed_row['posted_dt']):
+                            if abs((feed_row['posted_dt'] - f_dt).days) <= 2:
+                                has_collision = True
+                                break
+                            
         if has_collision:
             # We suspect this is a duplicate (same amount, description, and very close date)
             # but maybe a different ID.
             
             # Let the user review it rather than silently ignoring it.
-            new_feed_row = feed_row.copy()
+            new_feed_dict = feed_row.to_dict()
             cols_to_check = ['Notes'] if 'Notes' in ws_df.columns else [] # Use ws_df to see if column exists
             
             if cols_to_check:
                 # new_feed_row is a series from the feed, it might not have 'Notes' yet
-                curr_notes = str(new_feed_row.get('Notes', ''))
+                curr_notes = str(new_feed_dict.get('Notes', ''))
                 if "[Duplicate?]" not in curr_notes:
-                    new_feed_row['Notes'] = f"{curr_notes} [Duplicate?]".strip()
+                    new_feed_dict['Notes'] = f"{curr_notes} [Duplicate?]".strip()
                     
-            final_rows.append(new_feed_row)
+            final_rows.append(new_feed_dict)
             continue # Moved to the next row
             
         else:
             # No collision, definitely new
-            final_rows.append(feed_row)
+            final_rows.append(feed_row.to_dict())
             
     # Reconstruct DataFrame
     result_df = pd.DataFrame(final_rows)

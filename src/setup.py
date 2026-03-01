@@ -85,7 +85,7 @@ print("Google Sheets config validated.")
 ###
 # initial pull
 ###
-print("Performing initial data pull...")
+print("Performing initial data pull... - Edited 3/1/2026")
 run_update(days_to_fetch=int(os.environ.get("SETUP_PULL_PAST_DAYS")))
 
 print("Setup complete!")
