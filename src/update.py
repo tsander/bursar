@@ -111,18 +111,11 @@ def update_worksheet(ws: gspread.Worksheet, subset, columns):
     ws_data = pd.DataFrame(ws.get_values(f"A1:{last_col}"), columns=columns).iloc[1:, :]
     sf_data = subset.copy()
 
-    # Get IDs already in the sheet
-    existing_ids = set(ws_data['id'].dropna().unique())
-    # Fiter out any manually created rows without IDs.
-    if '' in existing_ids: existing_ids.remove('')
-
-    # Filter feed to only include new IDs
-    sf_data = sf_data[~sf_data['id'].isin(existing_ids)]
-
     new_data = (
         pd.concat([ws_data, sf_data])
         .loc[:, columns]
-        .assign(posted=lambda x: pd.to_datetime(x["posted"], format="mixed", dayfirst=False, errors='coerce').dt.strftime("%m/%d/%Y"))
+        .drop_duplicates(subset=["id"], keep="first")
+        .assign(posted=lambda x: pd.to_datetime(x["posted"], format="mixed", dayfirst=False).dt.strftime("%m/%d/%Y"))
         .sort_values(by=["posted", "account"], ascending=[False, True])
         .fillna("")
         .values.tolist()
