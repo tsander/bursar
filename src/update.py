@@ -38,6 +38,22 @@ def get_maps(maps_sheet):
 
     return maps
 
+def get_drop_rules():
+    rules = []
+    # Search for DROP_RULE_1, DROP_RULE_2, etc. in environment
+    for key, value in os.environ.items():
+        if key.startswith("DROP_RULE_"):
+            try:
+                if "|" in value:
+                    account, date_str = value.split("|")
+                    rules.append({
+                        "account": account.strip(),
+                        "cutoff": date_str.strip()
+                    })
+            except Exception as e:
+                print(f"Error parsing {key}: {e}")
+    return rules
+
 def simplefin_accounts_to_dataframe(simplefin_data, maps):
     df = pd.DataFrame(columns=['account', 'balance', 'posted'])
 
@@ -95,11 +111,18 @@ def update_worksheet(ws: gspread.Worksheet, subset, columns):
     ws_data = pd.DataFrame(ws.get_values(f"A1:{last_col}"), columns=columns).iloc[1:, :]
     sf_data = subset.copy()
 
+    # Get IDs already in the sheet
+    existing_ids = set(ws_data['id'].dropna().unique())
+    # Fiter out any manually created rows without IDs.
+    if '' in existing_ids: existing_ids.remove('')
+
+    # Filter feed to only include new IDs
+    sf_data = sf_data[~sf_data['id'].isin(existing_ids)]
+
     new_data = (
         pd.concat([ws_data, sf_data])
         .loc[:, columns]
-        .drop_duplicates(subset=["id"], keep="first")
-        .assign(posted=lambda x: pd.to_datetime(x["posted"], format="mixed", dayfirst=False).dt.strftime("%m/%d/%Y"))
+        .assign(posted=lambda x: pd.to_datetime(x["posted"], format="mixed", dayfirst=False, errors='coerce').dt.strftime("%m/%d/%Y"))
         .sort_values(by=["posted", "account"], ascending=[False, True])
         .fillna("")
         .values.tolist()
@@ -183,6 +206,36 @@ def run_update(days_to_fetch):
             f"No transactions found for {days_to_fetch} day update at {datetime.datetime.now()}."
         )
         return
+    
+    # Apply Drop Rules
+    drop_rules = get_drop_rules()
+    if drop_rules:
+        initial_count = len(df)
+        filtered_indices = []
+        for idx, row in df.iterrows():
+            should_drop = False
+            # posted is MM/DD/YYYY from simplefin_to_dataframe
+            try:
+                posted_dt = pd.to_datetime(row['posted'], format='%m/%d/%Y')
+                posted_str = posted_dt.strftime('%Y-%m-%d')
+                for rule in drop_rules:
+                    if row['account'] == rule['account'] and posted_str >= rule['cutoff']:
+                        should_drop = True
+                        break
+            except:
+                pass
+            
+            if not should_drop:
+                filtered_indices.append(idx)
+        
+        df = df.loc[filtered_indices].reset_index(drop=True)
+        dropped_count = initial_count - len(df)
+        if dropped_count > 0:
+            print(f"Dropped {dropped_count} transactions based on rules.")
+
+    if len(df) == 0:
+        print(f"All transactions filtered out by drop rules.")
+        return
 
     # get columns to update
     columns = [c.strip() for c in os.environ.get("TEMPLATE_COLUMNS").split(",")]
@@ -210,4 +263,4 @@ if __name__ == "__main__":
         days = int(sys.argv[1])
     else:
         days = 1
-    run_update(20)
+    run_update(days)
