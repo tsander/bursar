@@ -90,10 +90,51 @@ def simplefin_to_dataframe(simplefin_data, maps):
     return df
 
 
-def update_worksheet(ws: gspread.Worksheet, subset, columns):
+def update_worksheet(ws: gspread.Worksheet, subset, columns, ml_model=None):
     last_col = chr(ord("A") + len(columns) - 1)
     ws_data = pd.DataFrame(ws.get_values(f"A1:{last_col}"), columns=columns).iloc[1:, :]
     sf_data = subset.copy()
+
+    # Identify which transactions from the new batch (sf_data) are NOT already in the Google Sheet
+    existing_ids = set(ws_data["id"]) if "id" in ws_data.columns else set()
+    new_rows_mask = ~sf_data["id"].isin(existing_ids)
+    
+    # If the ML model is available, only predict on NEW transactions that are STILL missing a Category
+    if ml_model is not None and new_rows_mask.any() and "Category" in sf_data.columns:
+        # Create a boolean mask for rows that are both new AND have no category assigned
+        uncategorized = new_rows_mask & (sf_data["Category"].fillna("").str.strip() == "")
+        
+        if uncategorized.any():
+            # 1. Extract the features needed by the model for these specific rows
+            X_new = sf_data.loc[uncategorized, ["Account", "payee", "description", "amount"]].copy()
+            
+            # 2. Preprocess the amount column: remove any currency symbols/commas and convert to float
+            X_new["amount"] = X_new["amount"].astype(str).str.replace(r"[$,]", "", regex=True)
+            X_new["amount"] = pd.to_numeric(X_new["amount"], errors="coerce").fillna(0.0)
+            
+            # 3. Preprocess the text columns: ensure they are strings and replace NaNs with empty strings
+            for col in ["Account", "payee", "description"]:
+                X_new[col] = X_new[col].fillna("").astype(str)
+                
+            # 4. Generate prediction probabilities for each possible category
+            probs = ml_model.predict_proba(X_new)
+            
+            # 5. Find the highest probability for each transaction (this is our confidence score)
+            max_probs = probs.max(axis=1)
+            
+            # 6. Map the highest probability back to the actual category string
+            preds = ml_model.classes_[probs.argmax(axis=1)]
+            
+            # 7. Apply the confidence threshold - only keep predictions where we are >90% sure
+            confident_mask = max_probs > 0.90
+            
+            if confident_mask.any():
+                # Get the indices of the rows that met the confidence threshold
+                confident_indices = X_new.index[confident_mask]
+                
+                # Update the original dataframe containing the new batch with these predictions
+                sf_data.loc[confident_indices, "Category"] = preds[confident_mask]
+                print(f"ML Categorized {len(confident_indices)} transactions with >90% confidence.")
 
     new_data = (
         pd.concat([ws_data, sf_data])
@@ -236,6 +277,17 @@ def run_update(days_to_fetch):
     # get columns to update
     columns = [c.strip() for c in os.environ.get("TEMPLATE_COLUMNS").split(",")]
 
+    # load ML model if it exists
+    ml_model = None
+    model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model.joblib")
+    if os.path.exists(model_path):
+        import joblib
+        try:
+            ml_model = joblib.load(model_path)
+            print("Loaded ML Categorization model.")
+        except Exception as e:
+            print(f"Failed to load ML model: {e}")
+
     # update affected sheets
     worksheets = {s.title: s.id for s in sh.worksheets()}
     for period in sorted(set(df["period"])):
@@ -249,7 +301,7 @@ def run_update(days_to_fetch):
             )
             worksheets[period] = ws.id
 
-        update_worksheet(ws, subset, columns)
+        update_worksheet(ws, subset, columns, ml_model)
 
     print(f"Completed {days_to_fetch} day update at {datetime.datetime.now()}.")
 
