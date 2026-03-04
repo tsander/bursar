@@ -158,7 +158,12 @@ def run_update(days_to_fetch):
     res = requests.get(
         sf_auth["url"], auth=(sf_auth["username"], sf_auth["password"]), params=mparams
     )
-    data = res.json()
+    try:
+        data = res.json()
+    except json.decoder.JSONDecodeError:
+        import sys
+        print(f"Failed to decode JSON from response. Raw response text:\n{res.text}", file=sys.stderr)
+        raise
 
     # transform response into dataframe
     maps = get_maps(maps_sheet)
@@ -217,6 +222,16 @@ def run_update(days_to_fetch):
     if len(df) == 0:
         print(f"All transactions filtered out by drop rules.")
         return
+
+    # apply rules
+    try:
+        rules_sheet = sh.worksheet("Rules")
+        from rules import apply_rules
+        df = apply_rules(df, rules_sheet)
+    except gspread.exceptions.WorksheetNotFound:
+        print("Rules worksheet not found. Skipping rule application.")
+    except Exception as e:
+        print(f"Error evaluating rules: {e}")
 
     # get columns to update
     columns = [c.strip() for c in os.environ.get("TEMPLATE_COLUMNS").split(",")]

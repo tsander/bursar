@@ -13,6 +13,17 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      "name": "Python Debugger: Update",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "src/update.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "CONFIG_PATH": "config"
+      }
+    },
+    {
       "name": "Python Debugger: Current File",
       "type": "debugpy",
       "request": "launch",
