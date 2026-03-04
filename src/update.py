@@ -38,22 +38,6 @@ def get_maps(maps_sheet):
 
     return maps
 
-def get_drop_rules():
-    rules = []
-    # Search for DROP_RULE_1, DROP_RULE_2, etc. in environment
-    for key, value in os.environ.items():
-        if key.startswith("DROP_RULE_"):
-            try:
-                if "|" in value:
-                    account, date_str = value.split("|")
-                    rules.append({
-                        "account": account.strip(),
-                        "cutoff": date_str.strip()
-                    })
-            except Exception as e:
-                print(f"Error parsing {key}: {e}")
-    return rules
-
 def simplefin_accounts_to_dataframe(simplefin_data, maps):
     df = pd.DataFrame(columns=['account', 'balance', 'posted'])
 
@@ -200,31 +184,35 @@ def run_update(days_to_fetch):
         )
         return
     
-    # Apply Drop Rules
-    drop_rules = get_drop_rules()
-    if drop_rules:
-        initial_count = len(df)
-        filtered_indices = []
-        for idx, row in df.iterrows():
-            should_drop = False
-            # posted is MM/DD/YYYY from simplefin_to_dataframe
+    # Apply Drop Rules from environment (e.g., DROP_RULE_1="Account|YYYY-MM-DD")
+    for key, value in os.environ.items():
+        if key.startswith("DROP_RULE_"):
             try:
-                posted_dt = pd.to_datetime(row['posted'], format='%m/%d/%Y')
-                posted_str = posted_dt.strftime('%Y-%m-%d')
-                for rule in drop_rules:
-                    if row['account'] == rule['account'] and posted_str >= rule['cutoff']:
-                        should_drop = True
-                        break
-            except:
-                pass
-            
-            if not should_drop:
-                filtered_indices.append(idx)
-        
-        df = df.loc[filtered_indices].reset_index(drop=True)
-        dropped_count = initial_count - len(df)
-        if dropped_count > 0:
-            print(f"Dropped {dropped_count} transactions based on rules.")
+                # 1. Parse and Clean Rule
+                clean_val = value.strip('"').strip("'")
+                if "|" not in clean_val:
+                    continue
+                
+                print(f"Applying drop rule from {key}: '{clean_val}'")
+                rule_account, rule_date_str = clean_val.split("|")
+                cutoff_dt = pd.to_datetime(rule_date_str.strip())
+                
+                # 2. Convert feed dates to datetime objects for safe comparison
+                # Note: 'posted' is MM/DD/YYYY string format here
+                feed_dates = pd.to_datetime(df['posted'], format='%m/%d/%Y')
+
+                # 3. Create a mask for rows that match account AND date cutoff
+                mask = (df['account'] == rule_account.strip()) & (feed_dates >= cutoff_dt)
+
+                dropped_count = mask.sum()
+                if dropped_count > 0:
+                    print(f"[{key}] Dropping {dropped_count} transactions from '{rule_account.strip()}' on/after {rule_date_str.strip()}")
+                    df = df[~mask].reset_index(drop=True)
+                else:
+                    print(f"[{key}] No matching transactions found to drop for '{rule_account.strip()}'")
+                    
+            except Exception as e:
+                print(f"Error processing {key} ('{value}'): {e}")
 
     if len(df) == 0:
         print(f"All transactions filtered out by drop rules.")
