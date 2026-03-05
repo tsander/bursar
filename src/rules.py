@@ -216,5 +216,12 @@ def apply_rules(df, rules_ws):
                     
                 # Finally, overwrite the target column with the target value for ONLY the matched rows.
                 df_result.loc[mask, k] = v
+                
+            # Append "Source=Rule" to the Tags column to track that a rule modified this transaction
+            if 'Tags' not in df_result.columns:
+                df_result['Tags'] = ""
+            df_result.loc[mask, 'Tags'] = df_result.loc[mask, 'Tags'].astype(str).apply(
+                lambda t: t + ", Source=Rule" if t and "Source=Rule" not in t else ("Source=Rule" if "Source=Rule" not in t else t)
+            )
                     
     return df_result

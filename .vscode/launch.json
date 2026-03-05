@@ -21,7 +21,8 @@
       "cwd": "${workspaceFolder}",
       "env": {
         "CONFIG_PATH": "config"
-      }
+      },
+      "args": ["30"]
     },
     {
       "name": "Python Debugger: Current File",

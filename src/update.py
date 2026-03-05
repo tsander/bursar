@@ -134,7 +134,51 @@ def update_worksheet(ws: gspread.Worksheet, subset, columns, ml_model=None):
                 
                 # Update the original dataframe containing the new batch with these predictions
                 sf_data.loc[confident_indices, "Category"] = preds[confident_mask]
+                
+                # Tag with Source=ML
+                if 'Tags' not in sf_data.columns:
+                    sf_data['Tags'] = ""
+                sf_data.loc[confident_indices, 'Tags'] = sf_data.loc[confident_indices, 'Tags'].astype(str).apply(
+                    lambda t: t + ", Source=ML" if t and "Source=ML" not in t else ("Source=ML" if "Source=ML" not in t else t)
+                )
+
                 print(f"ML Categorized {len(confident_indices)} transactions with >90% confidence.")
+
+        # LLM Fallback for transactions that are still uncategorized
+        still_uncategorized = new_rows_mask & (sf_data["Category"].fillna("").str.strip() == "")
+        if still_uncategorized.any():
+            from llm_fallback import categorize_transactions_with_llm
+            X_llm = sf_data.loc[still_uncategorized, ["id", "Account", "payee", "description", "amount"]]
+            tx_dicts = X_llm.to_dict('records')
+            
+            print(f"Sending {len(tx_dicts)} transactions to LLM fallback...")
+            valid_categories = list(ml_model.classes_)
+            llm_results = categorize_transactions_with_llm(tx_dicts, valid_categories)
+            
+            if llm_results:
+                if 'Notes' not in sf_data.columns:
+                    sf_data['Notes'] = ""
+                if 'Tags' not in sf_data.columns:
+                    sf_data['Tags'] = ""
+                    
+                for res in llm_results:
+                    idx = sf_data.index[sf_data['id'] == res.get('id')]
+                    if len(idx) > 0:
+                        cat = res.get('category')
+                        reasoning = res.get('reasoning')
+                        
+                        if cat and cat in valid_categories and str(cat).strip().lower() != "uncategorized":
+                            sf_data.loc[idx, "Category"] = cat
+                            
+                            if reasoning:
+                                sf_data.loc[idx, "Notes"] = sf_data.loc[idx, "Notes"].astype(str).apply(
+                                    lambda n: f"{n} [LLM: {reasoning}]" if n and str(n).strip() else f"LLM: {reasoning}"
+                                )
+                                
+                            sf_data.loc[idx, "Tags"] = sf_data.loc[idx, "Tags"].astype(str).apply(
+                                lambda t: t + ", Source=LLM" if t and "Source=LLM" not in t else ("Source=LLM" if "Source=LLM" not in t else t)
+                            )
+                print(f"LLM Fallback completed for {len(llm_results)} transactions.")
 
     new_data = (
         pd.concat([ws_data, sf_data])

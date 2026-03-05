@@ -9,3 +9,5 @@ dependencies:
   - schedule
   - scikit-learn
   - joblib
+  - google-genai
+  - pydantic
