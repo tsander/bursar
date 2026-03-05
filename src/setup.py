@@ -8,6 +8,7 @@ import requests
 
 from run_scheduled import run_scheduled
 from update import run_update
+from train_model import train_model
 
 if not os.environ.get("IS_DOCKER", False):
     dotenv.load_dotenv()
@@ -85,6 +86,9 @@ print("Google Sheets config validated.")
 ###
 # initial pull
 ###
+print("Building initial ML model for categorization...")
+train_model()
+
 print("Performing initial data pull... - Edited 3/3/2026")
 run_update(days_to_fetch=int(os.environ.get("SETUP_PULL_PAST_DAYS")))
 

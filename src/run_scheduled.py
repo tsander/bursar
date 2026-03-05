@@ -5,12 +5,14 @@ import dotenv
 import schedule
 
 from update import run_update
+from train_model import train_model
 
 if not os.environ.get("IS_DOCKER", False):
     dotenv.load_dotenv()
 
 
 def run_scheduled():
+    schedule.every(1).week.do(train_model)
     schedule.every(1).week.do(
         run_update, days_to_fetch=int(os.environ.get("WEEKLY_PULL_PAST_DAYS"))
     )
