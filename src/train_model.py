@@ -33,6 +33,10 @@ def train_model():
 
     print("Fetching historical data from yearly sheets...")
     all_data = []
+    
+    template_cols_str = os.environ.get("TEMPLATE_COLUMNS")
+    expected_cols = [c.strip() for c in template_cols_str.split(",") if c.strip()] if template_cols_str else None
+    
     # Identify worksheets that are 4-digit years
     for ws in sh.worksheets():
         if re.match(r"^\d{4}$", ws.title):
@@ -41,6 +45,12 @@ def train_model():
             if data and len(data) > 1:
                 headers = data[0]
                 df_ws = pd.DataFrame(data[1:], columns=headers)
+                
+                if expected_cols:
+                    # Filter to only keep expected columns that exist in this sheet
+                    valid_cols = [c for c in expected_cols if c in df_ws.columns]
+                    df_ws = df_ws[valid_cols]
+                    
                 all_data.append(df_ws)
             
     if not all_data:

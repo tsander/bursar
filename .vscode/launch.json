@@ -13,6 +13,14 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      "name": "Python Debugger: Train",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "src/train_model.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Python Debugger: Update",
       "type": "debugpy",
       "request": "launch",
