@@ -10,6 +10,10 @@ import requests
 
 if not os.environ.get("IS_DOCKER", False):
     dotenv.load_dotenv()
+else:
+    for key, value in os.environ.items():
+        if isinstance(value, str):
+            os.environ[key] = value.strip('\'"\r\n')
 
 
 def get_maps(maps_sheet):

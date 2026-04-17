@@ -12,6 +12,10 @@ from train_model import train_model
 
 if not os.environ.get("IS_DOCKER", False):
     dotenv.load_dotenv()
+else:
+    for key, value in os.environ.items():
+        if isinstance(value, str):
+            os.environ[key] = value.strip('\'"\r\n')
 
 ###
 # SimpleFIN setup
@@ -79,6 +83,7 @@ except Exception as e:
     print(
         "Specified sheet ID invalid. Has the sheet been shared with the service account client email?"
     )
+    print(f"Details: {e}")
     exit()
 
 print("Google Sheets config validated.")

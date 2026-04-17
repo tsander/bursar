@@ -15,6 +15,10 @@ from sklearn.metrics import accuracy_score
 
 if not os.environ.get("IS_DOCKER", False):
     dotenv.load_dotenv()
+else:
+    for key, value in os.environ.items():
+        if isinstance(value, str):
+            os.environ[key] = value.strip('\'"\r\n')
 
 def train_model():
     print("Loading credentials...")
