@@ -1,6 +1,7 @@
 import operator
 import pandas as pd
 import re
+from retry_utils import retry_call
 
 def parse_amount_condition(amount_val, rule_str):
     """
@@ -142,7 +143,7 @@ def apply_rules(df, rules_ws):
             rules_data = rules_ws
         else:
             # get_all_records() turns the sheet into a list of dictionaries, one per row.
-            rules_data = rules_ws.get_all_records()
+            rules_data = retry_call(rules_ws.get_all_records)
     except Exception as e:
         print(f"Error fetching rules: {e}")
         return df

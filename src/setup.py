@@ -6,6 +6,7 @@ import dotenv
 import gspread
 import requests
 
+from retry_utils import retry_call
 from run_scheduled import run_scheduled
 from update import run_update
 from train_model import train_model
@@ -25,7 +26,7 @@ if not os.path.exists(
 ):
     print("No prior SimpleFIN credentials found, creating from token...")
     sf_token = os.environ.get("SIMPLEFIN_BRIDGE_TOKEN")
-    res = requests.post(base64.b64decode(sf_token))
+    res = retry_call(requests.post, base64.b64decode(sf_token))
 
     if res.status_code != 200:
         print(
@@ -54,7 +55,7 @@ print("Validating SimpleFIN credentials...")
 sf_auth = json.load(
     open(os.path.join(os.environ.get("CONFIG_PATH"), "simplefin_auth.json"))
 )
-res = requests.get(sf_auth["url"], auth=(sf_auth["username"], sf_auth["password"]))
+res = retry_call(requests.get, sf_auth["url"], auth=(sf_auth["username"], sf_auth["password"]))
 if res.status_code != 200:
     print(
         "SimpleFIN credentials invalid. Please check your credentials and try again. Specific setup information is available in the README."
@@ -67,9 +68,7 @@ print("SimpleFIN config validated.")
 ###
 print("Validating Google Sheets config...")
 try:
-    gc = gspread.service_account(
-        filename=os.path.join(os.environ.get("CONFIG_PATH"), "google_auth.json")
-    )
+    gc = retry_call(gspread.service_account, filename=os.path.join(os.environ.get("CONFIG_PATH"), "google_auth.json"))
     print("Google Sheets API access validated.")
 except Exception as e:
     print(
@@ -78,7 +77,7 @@ except Exception as e:
     exit()
 
 try:
-    sh = gc.open_by_key(os.environ.get("SHEET_ID"))
+    sh = retry_call(gc.open_by_key, os.environ.get("SHEET_ID"))
 except Exception as e:
     print(
         "Specified sheet ID invalid. Has the sheet been shared with the service account client email?"

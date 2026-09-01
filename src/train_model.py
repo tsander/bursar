@@ -5,6 +5,7 @@ import pandas as pd
 import gspread
 import joblib
 import dotenv
+from retry_utils import retry_call
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
@@ -33,7 +34,7 @@ def train_model():
         gs_auth = json.load(f)
         
     gc = gspread.service_account_from_dict(gs_auth)
-    sh = gc.open_by_key(os.environ.get("SHEET_ID"))
+    sh = retry_call(gc.open_by_key, os.environ.get("SHEET_ID"))
 
     print("Fetching historical data from yearly sheets...")
     all_data = []
@@ -42,10 +43,10 @@ def train_model():
     expected_cols = [c.strip() for c in template_cols_str.split(",") if c.strip()] if template_cols_str else None
     
     # Identify worksheets that are 4-digit years
-    for ws in sh.worksheets():
+    for ws in retry_call(sh.worksheets):
         if re.match(r"^\d{4}$", ws.title):
             print(f"Reading data from {ws.title}...")
-            data = ws.get_all_values()
+            data = retry_call(ws.get_all_values)
             if data and len(data) > 1:
                 headers = data[0]
                 df_ws = pd.DataFrame(data[1:], columns=headers)

@@ -8,6 +8,8 @@ import gspread
 import pandas as pd
 import requests
 
+from retry_utils import retry_call
+
 if not os.environ.get("IS_DOCKER", False):
     dotenv.load_dotenv()
 else:
@@ -17,7 +19,7 @@ else:
 
 
 def get_maps(maps_sheet):
-    maps_raw = maps_sheet.get_values()
+    maps_raw = retry_call(maps_sheet.get_values)
     maps = []
 
     headers = maps_raw[0]
@@ -96,7 +98,8 @@ def simplefin_to_dataframe(simplefin_data, maps):
 
 def update_worksheet(ws: gspread.Worksheet, subset, columns, ml_model=None):
     last_col = chr(ord("A") + len(columns) - 1)
-    ws_data = pd.DataFrame(ws.get_values(f"A1:{last_col}"), columns=columns).iloc[1:, :]
+    ws_values = retry_call(ws.get_values, f"A1:{last_col}")
+    ws_data = pd.DataFrame(ws_values, columns=columns).iloc[1:, :]
     sf_data = subset.copy()
 
     # Identify which transactions from the new batch (sf_data) are NOT already in the Google Sheet
@@ -194,11 +197,12 @@ def update_worksheet(ws: gspread.Worksheet, subset, columns, ml_model=None):
         .values.tolist()
     )
 
-    ws.update(f"A2:{last_col}", new_data, value_input_option="USER_ENTERED")
+    retry_call(ws.update, f"A2:{last_col}", new_data, value_input_option="USER_ENTERED")
 
 def update_overview(ws: gspread.Worksheet, subset, columns):
     last_col = chr(ord("A") + len(columns) - 1)
-    ws_data = pd.DataFrame(ws.get_values(f"A1:{last_col}"), columns=columns).iloc[1:, :]
+    ws_values = retry_call(ws.get_values, f"A1:{last_col}")
+    ws_data = pd.DataFrame(ws_values, columns=columns).iloc[1:, :]
     sf_data = subset.copy()
     
     new_data = ws_data.merge(sf_data, on='account', how='left', suffixes=[None, "_x"])
@@ -213,7 +217,7 @@ def update_overview(ws: gspread.Worksheet, subset, columns):
         .assign(posted=lambda x: pd.to_datetime(x["posted"], format="mixed", dayfirst=False).dt.strftime("%m/%d/%Y"))
         .fillna("").values.tolist())
 
-    ws.update(f"A2:{last_col}", new_data, value_input_option="USER_ENTERED")
+    retry_call(ws.update, f"A2:{last_col}", new_data, value_input_option="USER_ENTERED")
 
 
 def run_update(days_to_fetch):
@@ -226,13 +230,13 @@ def run_update(days_to_fetch):
     )
 
     gs = gspread.service_account_from_dict(gs_auth)
-    sh = gs.open_by_key(os.environ.get("SHEET_ID"))
+    sh = retry_call(gs.open_by_key, os.environ.get("SHEET_ID"))
 
     # load sheets
     try:
-        template_sheet = sh.get_worksheet_by_id(int(os.environ.get("TEMPLATE_GID")))
-        maps_sheet = sh.get_worksheet_by_id(int(os.environ.get("MAPS_GID")))
-        overview_sheet = sh.get_worksheet_by_id(int(os.environ.get("OVERVIEW_GID")))
+        template_sheet = retry_call(sh.get_worksheet_by_id, int(os.environ.get("TEMPLATE_GID")))
+        maps_sheet = retry_call(sh.get_worksheet_by_id, int(os.environ.get("MAPS_GID")))
+        overview_sheet = retry_call(sh.get_worksheet_by_id, int(os.environ.get("OVERVIEW_GID")))
     except Exception as e:
         print("Template or maps sheet GID not found. Exiting update.py.")
         exit()
@@ -244,8 +248,8 @@ def run_update(days_to_fetch):
         "start-date": str(int(start.timestamp())),
         "end-date": str(int(end.timestamp())),
     }
-    res = requests.get(
-        sf_auth["url"], auth=(sf_auth["username"], sf_auth["password"]), params=mparams
+    res = retry_call(
+        requests.get, sf_auth["url"], auth=(sf_auth["username"], sf_auth["password"]), params=mparams
     )
     try:
         data = res.json()
@@ -314,7 +318,7 @@ def run_update(days_to_fetch):
 
     # apply rules
     try:
-        rules_sheet = sh.worksheet("Rules")
+        rules_sheet = retry_call(sh.worksheet, "Rules")
         from rules import apply_rules
         df = apply_rules(df, rules_sheet)
     except gspread.exceptions.WorksheetNotFound:
@@ -337,15 +341,15 @@ def run_update(days_to_fetch):
             print(f"Failed to load ML model: {e}")
 
     # update affected sheets
-    worksheets = {s.title: s.id for s in sh.worksheets()}
+    worksheets = {s.title: s.id for s in retry_call(sh.worksheets)}
     for period in sorted(set(df["period"])):
         subset = df.loc[df["period"] == period, :].reset_index(drop=True)
 
         if period in worksheets.keys():
-            ws = sh.get_worksheet_by_id(worksheets[period])
+            ws = retry_call(sh.get_worksheet_by_id, worksheets[period])
         else:
-            ws = sh.duplicate_sheet(
-                template_sheet.id, insert_sheet_index=1, new_sheet_name=period
+            ws = retry_call(
+                sh.duplicate_sheet, template_sheet.id, insert_sheet_index=1, new_sheet_name=period
             )
             worksheets[period] = ws.id
 
