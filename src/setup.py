@@ -1,6 +1,10 @@
 import base64
 import json
 import os
+import socket
+
+# Set a process-wide default socket timeout to prevent indefinite socket hangs
+socket.setdefaulttimeout(120)
 
 import dotenv
 import gspread
@@ -24,17 +28,18 @@ else:
 if not os.path.exists(
     os.path.join(os.environ.get("CONFIG_PATH"), "simplefin_auth.json")
 ):
-    print("No prior SimpleFIN credentials found, creating from token...")
+    print("No prior SimpleFIN credentials found, creating from token...", flush=True)
     sf_token = os.environ.get("SIMPLEFIN_BRIDGE_TOKEN")
-    res = retry_call(requests.post, base64.b64decode(sf_token))
+    res = retry_call(requests.post, base64.b64decode(sf_token), timeout=(15, 90))
 
     if res.status_code != 200:
         print(
-            "SimpleFIN setup token invalid. Has it been used already? If so, delete the token from your account, generate a new one, and update .env."
+            "SimpleFIN setup token invalid. Has it been used already? If so, delete the token from your account, generate a new one, and update .env.",
+            flush=True
         )
         exit()
     else:
-        print("SimpleFIN setup token valid. Saving access credentials.")
+        print("SimpleFIN setup token valid. Saving access credentials.", flush=True)
 
     access_url = res.text
     scheme, rest = access_url.split("//", 1)
@@ -49,19 +54,20 @@ if not os.path.exists(
         os.path.join(os.environ.get("CONFIG_PATH"), "simplefin_auth.json"), "w+"
     ) as f:
         f.write(json.dumps(simplefin_data))
-        print("SimpleFIN credentials saved.")
+        print("SimpleFIN credentials saved.", flush=True)
 
-print("Validating SimpleFIN credentials...")
+print("Validating SimpleFIN credentials...", flush=True)
 sf_auth = json.load(
     open(os.path.join(os.environ.get("CONFIG_PATH"), "simplefin_auth.json"))
 )
-res = retry_call(requests.get, sf_auth["url"], auth=(sf_auth["username"], sf_auth["password"]))
+res = retry_call(requests.get, sf_auth["url"], auth=(sf_auth["username"], sf_auth["password"]), timeout=(15, 90))
 if res.status_code != 200:
     print(
-        "SimpleFIN credentials invalid. Please check your credentials and try again. Specific setup information is available in the README."
+        "SimpleFIN credentials invalid. Please check your credentials and try again. Specific setup information is available in the README.",
+        flush=True
     )
     exit()
-print("SimpleFIN config validated.")
+print("SimpleFIN config validated.", flush=True)
 
 ###
 # Google Sheets setup

@@ -1,5 +1,7 @@
 import unittest
 from unittest.mock import MagicMock
+import json
+import socket
 import sys
 import os
 
@@ -10,6 +12,12 @@ from run_scheduled import safe_run_job
 
 class DummyAPIError(Exception):
     pass
+
+
+class DummyHTTPError(Exception):
+    def __init__(self, status_code):
+        self.response = MagicMock(status_code=status_code)
+        super().__init__(f"HTTP Error {status_code}")
 
 
 class TestRetryUtils(unittest.TestCase):
@@ -24,8 +32,23 @@ class TestRetryUtils(unittest.TestCase):
     def test_is_transient_error_standard_types(self):
         self.assertTrue(is_transient_error(ConnectionResetError("Reset")))
         self.assertTrue(is_transient_error(TimeoutError("Timed out")))
+        self.assertTrue(is_transient_error(socket.timeout("Socket timed out")))
         self.assertTrue(is_transient_error(Exception("503 Service Unavailable")))
+        self.assertTrue(is_transient_error(Exception("Error 524 A timeout occurred")))
         self.assertFalse(is_transient_error(ValueError("Invalid argument")))
+
+    def test_is_transient_error_json_decode(self):
+        try:
+            json.loads("<!DOCTYPE html><html>524 Timeout</html>")
+        except json.decoder.JSONDecodeError as e:
+            self.assertTrue(is_transient_error(e))
+
+    def test_is_transient_error_cloudflare_status_codes(self):
+        err_524 = DummyHTTPError(524)
+        self.assertTrue(is_transient_error(err_524))
+
+        err_502 = DummyHTTPError(502)
+        self.assertTrue(is_transient_error(err_502))
 
     def test_retry_call_success_on_second_attempt(self):
         mock_func = MagicMock()

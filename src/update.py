@@ -220,6 +220,21 @@ def update_overview(ws: gspread.Worksheet, subset, columns):
     retry_call(ws.update, f"A2:{last_col}", new_data, value_input_option="USER_ENTERED")
 
 
+def fetch_simplefin_data(url, username, password, params):
+    res = requests.get(
+        url,
+        auth=(username, password),
+        params=params,
+        timeout=(15, 90),
+    )
+    res.raise_for_status()
+    try:
+        return res.json()
+    except json.decoder.JSONDecodeError as e:
+        print(f"Failed to decode JSON from SimpleFIN response (status {res.status_code}). Response snippet: {res.text[:300]}", file=sys.stderr, flush=True)
+        raise
+
+
 def run_update(days_to_fetch):
     # load credentials
     gs_auth = json.load(
@@ -238,8 +253,8 @@ def run_update(days_to_fetch):
         maps_sheet = retry_call(sh.get_worksheet_by_id, int(os.environ.get("MAPS_GID")))
         overview_sheet = retry_call(sh.get_worksheet_by_id, int(os.environ.get("OVERVIEW_GID")))
     except Exception as e:
-        print("Template or maps sheet GID not found. Exiting update.py.")
-        exit()
+        print(f"Template, maps, or overview sheet GID not found: {e}. Aborting this update run.", file=sys.stderr, flush=True)
+        raise
 
     # fetch data from SimpleFIN
     end = datetime.datetime.now()
@@ -248,15 +263,9 @@ def run_update(days_to_fetch):
         "start-date": str(int(start.timestamp())),
         "end-date": str(int(end.timestamp())),
     }
-    res = retry_call(
-        requests.get, sf_auth["url"], auth=(sf_auth["username"], sf_auth["password"]), params=mparams
+    data = retry_call(
+        fetch_simplefin_data, sf_auth["url"], sf_auth["username"], sf_auth["password"], mparams
     )
-    try:
-        data = res.json()
-    except json.decoder.JSONDecodeError:
-        import sys
-        print(f"Failed to decode JSON from response. Raw response text:\n{res.text}", file=sys.stderr)
-        raise
 
     # transform response into dataframe
     maps = get_maps(maps_sheet)
